@@ -1,0 +1,8 @@
+{
+  "appId": "com.palascoding.sonda",
+  "appName": "Sonda",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#0B141D"
+  }
+}

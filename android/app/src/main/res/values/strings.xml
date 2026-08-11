@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Sonda</string>
+    <string name="title_activity_main">Sonda</string>
+    <string name="package_name">com.palascoding.sonda</string>
+    <string name="custom_url_scheme">com.palascoding.sonda</string>
+</resources>

@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0B141D">
+<title>Sonda</title>
+<style>
+  :root{
+    --app-bg:#0B141D; --app-panel:#122230; --app-panel-2:#0F1C28;
+    --app-line:rgba(126,190,210,.16); --app-text:#E6F1F5; --app-sub:#8FA9B8;
+    --accent:#45D8C8; --accent-dim:rgba(69,216,200,.14);
+    --hot:#FF6B6B; --warm:#FFC24B; --cold:#6FA8FF;
+    --mono:ui-monospace,"Cascadia Code",Consolas,monospace;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
+  html,body{margin:0; height:100%; overscroll-behavior:none}
+  body{
+    background:var(--app-bg); color:var(--app-text);
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    height:100dvh; overflow:hidden;
+  }
+  #appRoot{
+    position:relative; height:100%; display:flex; flex-direction:column;
+    padding-top:env(safe-area-inset-top); padding-bottom:env(safe-area-inset-bottom);
+  }
+  #appRoot.shake{animation:shake .28s linear infinite}
+  @keyframes shake{0%,100%{transform:translateX(0)}25%{transform:translateX(-1.5px)}75%{transform:translateX(1.5px)}}
+  @media (prefers-reduced-motion:reduce){ #appRoot.shake{animation:none} }
+
+  .topbar{display:flex; align-items:center; gap:10px; padding:14px 16px 6px; flex-shrink:0}
+  .brand{display:flex; align-items:baseline; gap:8px; margin-right:auto}
+  .brand .name{font-weight:700; letter-spacing:.02em; font-size:1.1rem}
+  .brand .name .dot{color:var(--accent)}
+  .brand .count{font-size:.78rem; color:var(--app-sub); font-variant-numeric:tabular-nums}
+  .simbadge{font-size:.6rem; letter-spacing:.12em; color:var(--accent);
+    border:1px solid var(--accent-dim); background:var(--accent-dim);
+    padding:3px 7px; border-radius:99px; font-weight:600}
+  .iconbtn{
+    background:var(--app-panel); border:1px solid var(--app-line); color:var(--app-text);
+    width:36px; height:36px; border-radius:11px; font-size:.95rem; cursor:pointer;
+    display:grid; place-items:center; font-family:inherit;
+  }
+  .iconbtn[aria-pressed="true"]{border-color:var(--accent); color:var(--accent)}
+  .iconbtn:focus-visible, .chip:focus-visible, button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+  .chips{display:flex; gap:8px; padding:8px 16px 4px; overflow-x:auto; scrollbar-width:none; flex-shrink:0}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{
+    flex-shrink:0; border:1px solid var(--app-line); background:var(--app-panel-2);
+    color:var(--app-sub); border-radius:99px; padding:7px 13px; font-size:.8rem; cursor:pointer;
+    display:flex; gap:6px; align-items:center; transition:.15s; font-family:inherit;
+  }
+  .chip[aria-pressed="true"]{background:var(--accent-dim); border-color:var(--accent); color:var(--app-text)}
+
+  .radar-wrap{position:relative; flex:1; display:flex; align-items:center; justify-content:center; min-height:0}
+  #radarField{position:relative; width:100%; max-width:440px; aspect-ratio:1; max-height:100%}
+  #radarCanvas{position:absolute; inset:0; width:100%; height:100%}
+  .zone-label{position:absolute; left:50%; transform:translateX(-50%);
+    font-size:.58rem; letter-spacing:.14em; color:var(--app-sub); opacity:.7; pointer-events:none}
+
+  .bubble{
+    position:absolute; width:56px; margin:-28px 0 0 -28px; text-align:center;
+    cursor:pointer; user-select:none;
+    transition:opacity .8s; z-index:5; background:none; border:none; padding:0; color:var(--app-text);
+    font-family:inherit;
+  }
+  .bubble .orb{
+    width:44px; height:44px; margin:0 auto; border-radius:50%;
+    display:grid; place-items:center; font-size:1.25rem;
+    background:var(--app-panel); border:2px solid var(--cold);
+    box-shadow:0 0 12px rgba(111,168,255,.25); transition:border-color .5s, box-shadow .5s;
+  }
+  .bubble.b-near .orb{border-color:var(--warm); box-shadow:0 0 14px rgba(255,194,75,.35)}
+  .bubble.b-immediate .orb{border-color:var(--hot); box-shadow:0 0 18px rgba(255,107,107,.5)}
+  .bubble .tag{font-size:.58rem; color:var(--app-sub); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .bubble .dbm{display:none; font-family:var(--mono); font-size:.55rem; color:var(--accent)}
+  #appRoot.advanced .bubble .dbm{display:block}
+  .bubble.stale{opacity:.18; pointer-events:none}
+  .bubble.hidden{opacity:0; pointer-events:none}
+  .bubble.selected .orb{outline:2px solid var(--accent); outline-offset:3px}
+
+  .footer-note{flex-shrink:0; text-align:center; font-size:.64rem; color:var(--app-sub); padding:6px 20px 14px; opacity:.75}
+
+  .sheet-back{position:absolute; inset:0; background:rgba(3,8,12,.5); opacity:0; pointer-events:none; transition:.25s; z-index:20}
+  .sheet-back.open{opacity:1; pointer-events:auto}
+  .sheet{
+    position:absolute; left:0; right:0; bottom:0; z-index:21;
+    background:var(--app-panel); border-radius:24px 24px 0 0; border-top:1px solid var(--app-line);
+    padding:10px 20px calc(22px + env(safe-area-inset-bottom));
+    transform:translateY(105%); transition:transform .3s cubic-bezier(.3,1,.4,1);
+  }
+  .sheet.open{transform:translateY(0)}
+  .grab{width:38px; height:4px; border-radius:2px; background:var(--app-line); margin:0 auto 14px}
+  .sheet-head{display:flex; gap:12px; align-items:center}
+  .sheet-head .orb{width:48px; height:48px; flex-shrink:0; border-radius:50%; display:grid; place-items:center;
+    font-size:1.4rem; background:var(--app-panel-2); border:2px solid var(--cold)}
+  .sheet.b-near .sheet-head .orb{border-color:var(--warm)}
+  .sheet.b-immediate .sheet-head .orb{border-color:var(--hot)}
+  .sheet-head h2{margin:0; font-size:1.02rem}
+  .sheet-head .what{margin:2px 0 0; font-size:.78rem; color:var(--app-sub)}
+  .sheet-close{margin-left:auto; align-self:flex-start}
+
+  .sheet-stats{display:flex; gap:10px; margin:16px 0 14px}
+  .stat{flex:1; background:var(--app-panel-2); border:1px solid var(--app-line); border-radius:14px; padding:10px 12px}
+  .stat .lbl{font-size:.6rem; letter-spacing:.1em; color:var(--app-sub); text-transform:uppercase}
+  .stat .val{font-size:.95rem; font-weight:600; margin-top:4px; font-variant-numeric:tabular-nums}
+  .stat .val small{font-weight:400; color:var(--app-sub); font-size:.7rem}
+  .bars{display:flex; gap:3px; margin-top:8px; align-items:flex-end; height:16px}
+  .bars i{width:9px; border-radius:2px; background:var(--app-line)}
+  .bars i.on{background:var(--accent)}
+  .bars i:nth-child(1){height:5px}.bars i:nth-child(2){height:8px}.bars i:nth-child(3){height:11px}
+  .bars i:nth-child(4){height:13px}.bars i:nth-child(5){height:16px}
+
+  .findbtn{
+    width:100%; border:none; border-radius:14px; padding:14px; font-size:.95rem; font-weight:600;
+    background:var(--accent); color:#04231F; cursor:pointer; font-family:inherit;
+  }
+  details.tech{margin-top:12px; border:1px solid var(--app-line); border-radius:12px; overflow:hidden}
+  details.tech summary{padding:10px 14px; font-size:.78rem; color:var(--app-sub); cursor:pointer; list-style:none}
+  details.tech summary::before{content:"▸ "; color:var(--accent)}
+  details.tech[open] summary::before{content:"▾ "}
+  details.tech .tbody{padding:0 14px 12px; font-family:var(--mono); font-size:.7rem; color:var(--app-sub); line-height:1.8}
+  details.tech .tbody b{color:var(--app-text); font-weight:500}
+
+  .finder{position:absolute; inset:0; z-index:25; background:var(--app-bg); display:none; flex-direction:column;
+    padding:calc(20px + env(safe-area-inset-top)) 22px calc(20px + env(safe-area-inset-bottom))}
+  .finder.open{display:flex}
+  .finder-top{display:flex; align-items:center; gap:10px}
+  .finder-top .who{font-size:.9rem; font-weight:600}
+  .finder-top .who small{display:block; font-weight:400; color:var(--app-sub); font-size:.72rem}
+  .gauge-wrap{flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px}
+  .gauge{position:relative; width:min(250px,62vw); aspect-ratio:1}
+  .gauge svg{width:100%; height:100%; transform:rotate(-90deg)}
+  .gauge .track{stroke:var(--app-line); fill:none; stroke-width:10}
+  .gauge .fill{stroke:var(--cold); fill:none; stroke-width:10; stroke-linecap:round; transition:stroke-dashoffset .4s, stroke .5s}
+  .gauge.b-near .fill{stroke:var(--warm)}
+  .gauge.b-immediate .fill{stroke:var(--hot)}
+  .gauge-center{position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center}
+  .gauge-center .dist{font-size:2rem; font-weight:700; font-variant-numeric:tabular-nums}
+  .gauge-center .dist small{font-size:.9rem; font-weight:400; color:var(--app-sub)}
+  .gauge-center .margin{font-size:.66rem; color:var(--app-sub); font-family:var(--mono)}
+  .trend{font-size:1rem; font-weight:600; min-height:1.4em; text-align:center}
+  .trend.hotter{color:var(--hot)} .trend.colder{color:var(--cold)} .trend.flat{color:var(--app-sub)}
+  .haptic-note{font-size:.68rem; color:var(--app-sub); text-align:center}
+  .walk{display:flex; gap:10px; margin-top:8px}
+  .walk button{
+    flex:1; padding:15px; border-radius:14px; border:1px solid var(--app-line);
+    background:var(--app-panel); color:var(--app-text); font-size:.85rem; cursor:pointer;
+    touch-action:none; user-select:none; font-family:inherit;
+  }
+  .walk button:active{background:var(--accent-dim); border-color:var(--accent)}
+  .walk-hint{font-size:.62rem; color:var(--app-sub); text-align:center; margin-top:8px}
+
+  .listpane{position:absolute; inset:0; z-index:18; background:var(--app-bg); display:none; flex-direction:column;
+    padding:calc(20px + env(safe-area-inset-top)) 0 env(safe-area-inset-bottom)}
+  .listpane.open{display:flex}
+  .listpane header{display:flex; align-items:center; gap:10px; padding:0 18px 10px}
+  .listpane h2{margin:0; font-size:1rem; margin-right:auto}
+  .rows{overflow-y:auto; flex:1; padding:0 12px 20px}
+  .row{
+    display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+    background:none; border:none; border-bottom:1px solid var(--app-line);
+    padding:13px 8px; cursor:pointer; color:var(--app-text); font-family:inherit;
+  }
+  .row .ric{font-size:1.25rem; width:34px; text-align:center}
+  .row .rname{font-size:.85rem; font-weight:600}
+  .row .rcat{font-size:.68rem; color:var(--app-sub)}
+  .row .rmeta{margin-left:auto; text-align:right; font-variant-numeric:tabular-nums}
+  .row .rdist{font-size:.8rem; font-weight:600}
+  .pill{display:inline-block; font-size:.58rem; padding:2px 8px; border-radius:99px; margin-top:3px}
+  .pill.far{background:rgba(111,168,255,.15); color:var(--cold)}
+  .pill.near{background:rgba(255,194,75,.15); color:var(--warm)}
+  .pill.immediate{background:rgba(255,107,107,.18); color:var(--hot)}
+</style>
+</head>
+<body>
+<div id="appRoot">
+  <div class="topbar">
+    <div class="brand">
+      <span class="name">Sonda<span class="dot">.</span></span>
+      <span class="count" id="devCount">— aparelhos</span>
+    </div>
+    <span class="simbadge">SIMULAÇÃO</span>
+    <button class="iconbtn" id="advBtn" aria-pressed="false" title="Modo avançado (mostrar dBm)">ⓘ</button>
+    <button class="iconbtn" id="listBtn" aria-pressed="false" title="Ver em lista">☰</button>
+  </div>
+
+  <div class="chips" id="chips" role="group" aria-label="Filtrar por categoria"></div>
+
+  <div class="radar-wrap">
+    <div id="radarField">
+      <canvas id="radarCanvas"></canvas>
+      <span class="zone-label" style="top:14%">DISTANTE</span>
+      <span class="zone-label" style="top:33.5%">PRÓXIMO</span>
+    </div>
+  </div>
+  <div class="footer-note">A posição no anel indica proximidade; o ângulo é apenas ilustrativo. Toque em um aparelho.</div>
+
+  <!-- card -->
+  <div class="sheet-back" id="sheetBack"></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="shName">
+    <div class="grab"></div>
+    <div class="sheet-head">
+      <div class="orb" id="shIcon">🎧</div>
+      <div>
+        <h2 id="shName">—</h2>
+        <p class="what" id="shWhat">—</p>
+      </div>
+      <button class="iconbtn sheet-close" id="sheetClose" title="Fechar">✕</button>
+    </div>
+    <div class="sheet-stats">
+      <div class="stat">
+        <div class="lbl">Distância</div>
+        <div class="val" id="shDist">—</div>
+      </div>
+      <div class="stat">
+        <div class="lbl">Força do sinal</div>
+        <div class="bars" id="shBars"><i></i><i></i><i></i><i></i><i></i></div>
+      </div>
+    </div>
+    <button class="findbtn" id="findBtn">🔍 Encontrar este aparelho</button>
+    <details class="tech">
+      <summary>Detalhes técnicos</summary>
+      <div class="tbody" id="shTech">—</div>
+    </details>
+  </div>
+
+  <!-- modo busca -->
+  <div class="finder" id="finder">
+    <div class="finder-top">
+      <button class="iconbtn" id="finderBack" title="Voltar">←</button>
+      <div class="who"><span id="fdName">—</span><small id="fdCat">—</small></div>
+    </div>
+    <div class="gauge-wrap">
+      <div class="gauge" id="gauge">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle class="track" cx="60" cy="60" r="52"></circle>
+          <circle class="fill" id="gaugeFill" cx="60" cy="60" r="52"
+            stroke-dasharray="326.7" stroke-dashoffset="326.7"></circle>
+        </svg>
+        <div class="gauge-center">
+          <div class="dist"><span id="fdDist">—</span><small> m</small></div>
+          <div class="margin" id="fdMargin">±—</div>
+        </div>
+      </div>
+      <div class="trend flat" id="fdTrend">Procurando sinal…</div>
+      <div class="haptic-note">📳 A vibração acelera conforme você se aproxima.</div>
+    </div>
+    <div class="walk">
+      <button id="walkAway">◀ Simular afastar</button>
+      <button id="walkNear">Simular aproximar ▶</button>
+    </div>
+    <div class="walk-hint">Mantenha pressionado para "caminhar". No app real, isto responde ao seu movimento físico.</div>
+  </div>
+
+  <!-- lista -->
+  <div class="listpane" id="listpane">
+    <header>
+      <h2>Aparelhos por perto</h2>
+      <button class="iconbtn" id="listClose" title="Fechar lista">✕</button>
+    </header>
+    <div class="rows" id="rows"></div>
+  </div>
+</div>
+
+<script>
+'use strict';
+/* ===================== modelo de simulação =====================
+   Sinais 100% simulados: cada aparelho tem uma distância "real" que
+   deriva no tempo; o RSSI é gerado pelo modelo log-distance com ruído
+   gaussiano e suavizado por um filtro de Kalman 1D antes de chegar à UI. */
+const TX_POWER = -59, PATH_N = 2.7, NOISE = 3.6;
+const CATS = {
+  audio:{icon:'🎧', label:'Áudio / Fones', what:'Reproduz áudio via Bluetooth'},
+  media:{icon:'📺', label:'Mídia / Display', what:'Transmite vídeo e áudio para a TV'},
+  network:{icon:'🌐', label:'Rede', what:'Distribui internet Wi-Fi no ambiente'},
+  home:{icon:'🏠', label:'Casa Inteligente', what:'Dispositivo IoT controlável pelo celular'},
+  computing:{icon:'💻', label:'Computação', what:'Computador ou tablet com Bluetooth ativo'},
+  wear:{icon:'⌚', label:'Vestível', what:'Monitora atividade e notificações'},
+};
+
+class Kalman{
+  constructor(){ this.est=-70; this.cov=1; this.q=.008; this.r=4; }
+  update(z){
+    this.cov+=this.q;
+    const k=this.cov/(this.cov+this.r);
+    this.est+=k*(z-this.est);
+    this.cov*=(1-k);
+    return this.est;
+  }
+}
+function gauss(){ let u=0,v=0; while(!u)u=Math.random(); while(!v)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
+
+const DEVICES=[
+  {id:'ble:5C-F3-70-8A-11-B2', name:'Fone da Maria',      cat:'audio',    dist:1.2, min:.4,  max:4,  angle:32,  mac:'5C:F3:70:8A:11:B2', vendor:'Sony Corporation',  services:'0x110B (A2DP), 0x180F (Bateria)'},
+  {id:'ble:D4-9A-20-33-C1-07', name:'JBL Charge 5',       cat:'audio',    dist:3.4, min:1.5, max:7,  angle:158, mac:'D4:9A:20:33:C1:07', vendor:'Harman Intl.',      services:'0x110B (A2DP)'},
+  {id:'wifi:AC-84-C6-71-00-1A',name:'Roteador da Sala',   cat:'network',  dist:4.2, min:3.8, max:4.6,angle:255, mac:'AC:84:C6:71:00:1A', vendor:'TP-Link',           services:'SSID: CasaNet_5G'},
+  {id:'ble:8C-79-F5-12-9D-40', name:'Smart TV Samsung',   cat:'media',    dist:5.1, min:4.6, max:5.6,angle:205, mac:'8C:79:F5:12:9D:40', vendor:'Samsung Electronics',services:'0x1812 (HID), GATT proprietário'},
+  {id:'ble:F4-F5-D8-AA-27-63', name:'Chromecast',         cat:'media',    dist:6.4, min:5.8, max:7,  angle:118, mac:'F4:F5:D8:AA:27:63', vendor:'Google LLC',        services:'0xFEA0 (Cast)', flaky:true},
+  {id:'ble:70-EE-50-04-B8-91', name:'Lâmpada do Quarto',  cat:'home',     dist:2.6, min:2.2, max:3,  angle:301, mac:'70:EE:50:04:B8:91', vendor:'Signify (Hue)',     services:'0xFE0F (Hue)'},
+  {id:'ble:34-2E-B7-55-60-2F', name:'Notebook Dell',      cat:'computing',dist:3.1, min:1,  max:6,  angle:78,  mac:'34:2E:B7:55:60:2F', vendor:'Dell Inc.',         services:'0x1105 (OBEX), 0x111E (Handsfree)'},
+  {id:'ble:BC-93-07-4E-15-D8', name:'Galaxy Watch',       cat:'wear',     dist:.9,  min:.3, max:5,  angle:340, mac:'BC:93:07:4E:15:D8', vendor:'Samsung Electronics',services:'0x180D (Freq. cardíaca), 0x180F'},
+  {id:'ble:60-01-94-C2-88-3E', name:'Tomada Inteligente', cat:'home',     dist:7.2, min:6.6, max:7.8,angle:190, mac:'60:01:94:C2:88:3E', vendor:'Espressif Inc.',    services:'GATT proprietário (0xFFF0)'},
+];
+
+const now=()=>performance.now();
+DEVICES.forEach(d=>{
+  d.kalman=new Kalman();
+  d.rssiRaw=TX_POWER-10*PATH_N*Math.log10(d.dist);
+  d.rssiF=d.rssiRaw;
+  d.hist=[];
+  d.lastSeen=now();
+  d.angleJitter=0;
+  d.x=null; d.y=null;
+  d.advertising=true;
+});
+
+function rssiToDist(r){ return Math.min(50, Math.max(.1, Math.pow(10,(TX_POWER-r)/(10*PATH_N)))); }
+function bucket(r){ return r>-50?'immediate':(r>=-70?'near':'far'); }
+function bucketPT(b){ return b==='immediate'?'Muito perto':(b==='near'?'Próximo':'Distante'); }
+function barsOf(r){ return Math.max(1, Math.min(5, Math.round((r+100)/11))); }
+function fmt(n,d=1){ return n.toFixed(d).replace('.',','); }
+
+/* tendência quente/frio: média dos últimos 1,5 s vs 1,5 s anteriores, histerese 2 dB */
+function trendOf(d){
+  const t=now(), a=[], b=[];
+  for(const h of d.hist){
+    const age=t-h.t;
+    if(age<1500) a.push(h.rssi);
+    else if(age<3000) b.push(h.rssi);
+  }
+  if(a.length<3||b.length<3) return 'flat';
+  const ma=a.reduce((s,x)=>s+x,0)/a.length, mb=b.reduce((s,x)=>s+x,0)/b.length;
+  if(ma-mb>2) return 'hotter';
+  if(mb-ma>2) return 'colder';
+  return 'flat';
+}
+
+/* ===================== estado da UI ===================== */
+let filter='all', advanced=false, selected=null, finderDev=null, walkDir=0;
+const $=id=>document.getElementById(id);
+const field=$('radarField'), appRoot=$('appRoot');
+const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const chipsEl=$('chips');
+const chipDefs=[['all','Todos','']].concat(Object.entries(CATS).map(([k,c])=>[k,c.label.split(' ')[0],c.icon]));
+chipDefs.forEach(([key,label,icon])=>{
+  const b=document.createElement('button');
+  b.className='chip'; b.dataset.key=key;
+  b.setAttribute('aria-pressed', key==='all');
+  b.innerHTML=(icon?icon+' ':'')+label;
+  b.onclick=()=>{ filter=key;
+    chipsEl.querySelectorAll('.chip').forEach(c=>c.setAttribute('aria-pressed', c.dataset.key===key));
+  };
+  chipsEl.appendChild(b);
+});
+
+DEVICES.forEach(d=>{
+  const b=document.createElement('button');
+  b.className='bubble'; b.dataset.id=d.id;
+  b.setAttribute('aria-label', d.name);
+  b.innerHTML=`<div class="orb">${CATS[d.cat].icon}</div>
+    <div class="tag">${d.name}</div><div class="dbm"></div>`;
+  b.onclick=()=>openCard(d);
+  field.appendChild(b);
+  d.el=b;
+});
+
+/* ===================== tick de simulação (300 ms) ===================== */
+setInterval(()=>{
+  const t=now();
+  for(const d of DEVICES){
+    if(finderDev===d && walkDir!==0){
+      d.dist=Math.min(12, Math.max(.3, d.dist - walkDir*.28));
+    }else{
+      d.dist=Math.min(d.max, Math.max(d.min, d.dist + gauss()*.07));
+    }
+    if(d.flaky){
+      const cycle=(t/1000)%24;         // 16 s anunciando, 8 s em silêncio
+      d.advertising=cycle<16;
+    }
+    if(!d.advertising) continue;
+    d.rssiRaw=TX_POWER-10*PATH_N*Math.log10(d.dist)+gauss()*NOISE;
+    d.rssiF=d.kalman.update(d.rssiRaw);
+    d.hist.push({t, rssi:d.rssiF});
+    while(d.hist.length && t-d.hist[0].t>3500) d.hist.shift();
+    d.lastSeen=t;
+  }
+},300);
+
+/* ===================== canvas do radar ===================== */
+const canvas=$('radarCanvas'), ctx=canvas.getContext('2d');
+let sweep=0;
+function rssiToRadius(r){ return Math.min(.97, Math.max(.07, (-32-r)/58)); }
+const Z_NEAR=rssiToRadius(-50), Z_FAR=rssiToRadius(-70);
+
+function draw(){
+  const dpr=devicePixelRatio||1;
+  const w=field.clientWidth, h=field.clientHeight;
+  if(canvas.width!==w*dpr){ canvas.width=w*dpr; canvas.height=h*dpr; }
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,w,h);
+  const cx=w/2, cy=h/2, R=Math.min(w,h)/2-28;
+
+  let g=ctx.createRadialGradient(cx,cy,0,cx,cy,R);
+  g.addColorStop(0,'rgba(69,216,200,.06)'); g.addColorStop(1,'rgba(69,216,200,0)');
+  ctx.fillStyle=g; ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.fill();
+
+  ctx.lineWidth=1;
+  [[Z_NEAR,'rgba(255,194,75,.28)'],[Z_FAR,'rgba(111,168,255,.25)'],[.97,'rgba(126,190,210,.2)']].forEach(([f,c])=>{
+    ctx.strokeStyle=c; ctx.beginPath(); ctx.arc(cx,cy,R*f,0,7); ctx.stroke();
+  });
+  ctx.strokeStyle='rgba(126,190,210,.07)';
+  for(const f of [.2,.5,.82]){ ctx.beginPath(); ctx.arc(cx,cy,R*f,0,7); ctx.stroke(); }
+  ctx.beginPath(); ctx.moveTo(cx-R,cy); ctx.lineTo(cx+R,cy); ctx.moveTo(cx,cy-R); ctx.lineTo(cx,cy+R); ctx.stroke();
+
+  if(!reduceMotion){
+    sweep+=.014;
+    if(ctx.createConicGradient){
+      const cg=ctx.createConicGradient(sweep,cx,cy);
+      cg.addColorStop(0,'rgba(69,216,200,.32)');
+      cg.addColorStop(.12,'rgba(69,216,200,0)');
+      cg.addColorStop(1,'rgba(69,216,200,0)');
+      ctx.fillStyle=cg; ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,R*.97,0,7); ctx.fill();
+    }
+    const p=(performance.now()/2400)%1;
+    ctx.strokeStyle=`rgba(69,216,200,${.35*(1-p)})`;
+    ctx.beginPath(); ctx.arc(cx,cy,R*p,0,7); ctx.stroke();
+  }
+
+  ctx.fillStyle='#45D8C8';
+  ctx.beginPath(); ctx.arc(cx,cy,5,0,7); ctx.fill();
+  ctx.fillStyle='rgba(69,216,200,.25)';
+  ctx.beginPath(); ctx.arc(cx,cy,10,0,7); ctx.fill();
+
+  const t=now();
+  let visible=0;
+  for(const d of DEVICES){
+    const stale=t-d.lastSeen>10000;
+    const dimming=t-d.lastSeen>3000;
+    const catOk=filter==='all'||d.cat===filter;
+    d.el.classList.toggle('hidden', !catOk||stale);
+    d.el.classList.toggle('stale', catOk&&dimming&&!stale);
+    if(catOk&&!stale) visible++;
+
+    d.angleJitter+= (Math.random()-.5)*.0015;
+    d.angleJitter=Math.max(-.06,Math.min(.06,d.angleJitter));
+    const a=(d.angle*Math.PI/180)+d.angleJitter;
+    const rr=rssiToRadius(d.rssiF)*R;
+    const tx=cx+Math.cos(a)*rr, ty=cy+Math.sin(a)*rr;
+    if(d.x===null){ d.x=tx; d.y=ty; }
+    d.x+= (tx-d.x)*.06; d.y+=(ty-d.y)*.06;
+    d.el.style.transform=`translate(${d.x}px,${d.y}px)`;
+
+    const b=bucket(d.rssiF);
+    d.el.classList.toggle('b-near', b==='near');
+    d.el.classList.toggle('b-immediate', b==='immediate');
+    d.el.classList.toggle('selected', selected===d);
+    if(advanced) d.el.querySelector('.dbm').textContent=Math.round(d.rssiF)+' dBm';
+  }
+  $('devCount').textContent=visible+' aparelho'+(visible===1?'':'s');
+
+  if(selected && $('sheet').classList.contains('open')) renderCard(selected);
+  if(finderDev && $('finder').classList.contains('open')) renderFinder(finderDev);
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+
+/* ===================== card ===================== */
+function openCard(d){
+  selected=d;
+  renderCard(d);
+  $('sheet').classList.add('open'); $('sheetBack').classList.add('open');
+}
+function closeCard(){
+  selected=null;
+  $('sheet').classList.remove('open'); $('sheetBack').classList.remove('open');
+}
+function renderCard(d){
+  const c=CATS[d.cat], b=bucket(d.rssiF);
+  const sheet=$('sheet');
+  sheet.classList.toggle('b-near', b==='near');
+  sheet.classList.toggle('b-immediate', b==='immediate');
+  $('shIcon').textContent=c.icon;
+  $('shName').textContent=d.name;
+  $('shWhat').textContent=c.label+' · '+c.what;
+  const dist=rssiToDist(d.rssiF), margin=dist*.45;
+  $('shDist').innerHTML=`~${fmt(dist)} m <small>(±${fmt(margin)})</small>`;
+  const bars=barsOf(d.rssiF);
+  [...$('shBars').children].forEach((el,i)=>el.classList.toggle('on', i<bars));
+  $('shTech').innerHTML=
+    `Endereço&nbsp;<b>${d.mac}</b><br>`+
+    `Fabricante&nbsp;<b>${d.vendor}</b><br>`+
+    `Serviços&nbsp;<b>${d.services}</b><br>`+
+    `RSSI cru&nbsp;<b>${Math.round(d.rssiRaw)} dBm</b> · filtrado&nbsp;<b>${fmt(d.rssiF)} dBm</b><br>`+
+    `Zona&nbsp;<b>${bucketPT(b)}</b> · amostras&nbsp;<b>${d.hist.length}</b>`;
+}
+$('sheetClose').onclick=closeCard;
+$('sheetBack').onclick=closeCard;
+
+/* ===================== modo busca ===================== */
+let hapticTimer=null;
+function enterFinder(d){
+  finderDev=d; closeCard();
+  $('fdName').textContent=d.name;
+  $('fdCat').textContent=CATS[d.cat].label;
+  $('finder').classList.add('open');
+  if(navigator.vibrate && !hapticTimer){
+    hapticTimer=setInterval(()=>{
+      if(!finderDev) return;
+      const s=Math.min(1,Math.max(0,(finderDev.rssiF+90)/50));
+      if(s>.25 && Math.random()<s) navigator.vibrate(12+s*25);
+    },420);
+  }
+}
+function exitFinder(){
+  finderDev=null; walkDir=0;
+  $('finder').classList.remove('open');
+  appRoot.classList.remove('shake');
+  if(hapticTimer){ clearInterval(hapticTimer); hapticTimer=null; }
+}
+function renderFinder(d){
+  const dist=rssiToDist(d.rssiF), b=bucket(d.rssiF);
+  $('fdDist').textContent=fmt(dist);
+  $('fdMargin').textContent='±'+fmt(dist*.45)+' m · '+Math.round(d.rssiF)+' dBm';
+  const s=Math.min(1,Math.max(0,(d.rssiF+90)/50));
+  $('gaugeFill').style.strokeDashoffset=326.7*(1-s);
+  const g=$('gauge');
+  g.classList.toggle('b-near', b==='near');
+  g.classList.toggle('b-immediate', b==='immediate');
+  const tr=trendOf(d), el=$('fdTrend');
+  el.className='trend '+(tr==='hotter'?'hotter':tr==='colder'?'colder':'flat');
+  el.textContent= tr==='hotter' ? 'Você está chegando mais perto! 🔥'
+                : tr==='colder' ? 'Afastando-se… ❄️'
+                : (b==='immediate' ? 'Está bem aqui! Procure em volta.' : 'Sinal estável — continue andando.');
+  appRoot.classList.toggle('shake', b==='immediate' && !reduceMotion);
+}
+$('findBtn').onclick=()=>{ if(selected) enterFinder(selected); };
+$('finderBack').onclick=exitFinder;
+[['walkNear',1],['walkAway',-1]].forEach(([id,dir])=>{
+  const b=$(id);
+  const on=e=>{ e.preventDefault(); walkDir=dir; };
+  const off=()=>{ walkDir=0; };
+  b.addEventListener('pointerdown',on);
+  b.addEventListener('pointerup',off);
+  b.addEventListener('pointercancel',off);
+  b.addEventListener('pointerleave',off);
+});
+
+/* ===================== lista ===================== */
+let listTimer=null;
+$('listBtn').onclick=()=>{
+  const open=!$('listpane').classList.contains('open');
+  $('listpane').classList.toggle('open',open);
+  $('listBtn').setAttribute('aria-pressed',open);
+  if(open){ renderList(); listTimer=setInterval(renderList,900); }
+  else if(listTimer){ clearInterval(listTimer); listTimer=null; }
+};
+$('listClose').onclick=()=>{ $('listpane').classList.remove('open');
+  $('listBtn').setAttribute('aria-pressed','false');
+  if(listTimer){ clearInterval(listTimer); listTimer=null; } };
+function renderList(){
+  const t=now();
+  const alive=DEVICES.filter(d=>t-d.lastSeen<10000)
+    .sort((a,b)=>rssiToDist(a.rssiF)-rssiToDist(b.rssiF));
+  $('rows').innerHTML='';
+  for(const d of alive){
+    const b=bucket(d.rssiF), c=CATS[d.cat];
+    const row=document.createElement('button');
+    row.className='row';
+    row.innerHTML=`<span class="ric">${c.icon}</span>
+      <span><span class="rname">${d.name}</span><br><span class="rcat">${c.label}</span></span>
+      <span class="rmeta"><span class="rdist">~${fmt(rssiToDist(d.rssiF))} m</span><br>
+      <span class="pill ${b}">${bucketPT(b)}</span></span>`;
+    row.onclick=()=>{ $('listpane').classList.remove('open');
+      $('listBtn').setAttribute('aria-pressed','false');
+      if(listTimer){ clearInterval(listTimer); listTimer=null; }
+      openCard(d); };
+    $('rows').appendChild(row);
+  }
+}
+
+/* ===================== modo avançado ===================== */
+$('advBtn').onclick=()=>{
+  advanced=!advanced;
+  appRoot.classList.toggle('advanced',advanced);
+  $('advBtn').setAttribute('aria-pressed',advanced);
+};
+</script>
+</body>
+</html>

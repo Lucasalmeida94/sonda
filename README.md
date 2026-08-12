@@ -1,10 +1,30 @@
 # Sonda 📡
 
-Protótipo navegável de um app **radar de dispositivos eletrônicos**: visualiza aparelhos ao redor em um radar circular, com estimativa de distância por RSSI, modo busca "quente ou frio" e classificação por categoria.
+App **radar de dispositivos eletrônicos**: visualiza aparelhos ao redor em um radar circular, com estimativa de distância por RSSI, modo busca "quente ou frio" e classificação por categoria.
 
-> ⚠️ **Os sinais são 100% simulados.** Este é um protótipo de UX/UI empacotado como app Android (WebView via Capacitor). Cada aparelho tem uma distância virtual que deriva no tempo; o RSSI é gerado pelo modelo log-distance com ruído gaussiano e suavizado por um filtro de Kalman 1D antes de chegar à interface — o mesmo pipeline planejado para a versão real com BLE.
+O repositório tem duas versões:
 
-## O que tem no protótipo
+| Versão | Pasta | Sinais | APK |
+|---|---|---|---|
+| **App real (Flutter + BLE)** | `flutter/` | Bluetooth LE de verdade (`flutter_blue_plus`) | `apk/sonda-ble.apk` |
+| Protótipo de UX (Capacitor/WebView) | `www/` + `android/` | 100% simulados | `apk/sonda-debug.apk` |
+
+> Os dois usam o mesmo pipeline de sinal (log-distance + filtro de Kalman 1D) e a mesma linguagem visual. O protótipo serviu para validar a UX antes do BLE real. **Ambos têm o mesmo application id** (`com.palascoding.sonda`), então instalar um substitui o outro no aparelho.
+
+## App real (Flutter + BLE)
+
+- **Scan BLE contínuo** com `flutter_blue_plus` (modo low-latency, atualizações por advertisement).
+- **Radar ao vivo**: cada dispositivo detectado vira uma bolha que se aproxima/afasta do centro conforme o RSSI filtrado (Kalman por dispositivo); TTL de 10 s com fade em 3 s.
+- **Classificação heurística**: nome anunciado → serviços GATT (Fast Pair, HID, freq. cardíaca, Eddystone…) → Company ID do fabricante (subconjunto da tabela Bluetooth SIG).
+- **Card do dispositivo**: distância com margem, barras de sinal, MAC/ID, fabricante, serviços, RSSI cru vs. filtrado, TxPower.
+- **Modo busca quente/frio** com vibração progressiva real (HapticFeedback) e tendência por janelas de 1,5 s com histerese de 2 dB.
+- **Permissões**: `BLUETOOTH_SCAN` (`neverForLocation`) no Android 12+; localização apenas para Android ≤ 11, como o sistema exige.
+
+Compilar: instale o [Flutter](https://docs.flutter.dev/get-started/install), depois `cd flutter && flutter build apk --release`.
+
+Limitações conhecidas desta primeira versão: só Android (iOS exige ajustes de Info.plist), sem Wi-Fi scan nem UWB ainda, tabela de fabricantes reduzida, e dispositivos iOS/Android modernos aparecem com MAC randomizado (é o comportamento esperado da plataforma — veja `docs/especificacao.md`).
+
+## O que tem no protótipo (Capacitor)
 
 - **Radar animado** (canvas): varredura, pulso, três zonas de proximidade (Distante / Próximo / Muito perto) e 9 dispositivos simulados que deslizam entre os anéis mudando de cor (azul → âmbar → vermelho).
 - **Card do dispositivo**: nome, categoria, "o que faz", distância com margem de erro, barras de sinal e detalhes técnicos (MAC, fabricante, serviços GATT, RSSI cru vs. filtrado).
@@ -15,27 +35,24 @@ Protótipo navegável de um app **radar de dispositivos eletrônicos**: visualiz
 ## Estrutura
 
 ```
-www/index.html      ← todo o app (HTML/CSS/JS vanilla, sem dependências)
-android/            ← projeto Android gerado pelo Capacitor
-apk/                ← APK de debug pronto para instalar
-capacitor.config.json
+flutter/            ← app real (Flutter + flutter_blue_plus)
+  lib/domain.dart          Kalman, estimador de distância, classificador
+  lib/scanner.dart         BleScanner + DeviceRegistry (TTL)
+  lib/radar_screen.dart    radar (CustomPainter), lista, card
+  lib/finder_screen.dart   modo busca quente/frio + haptics
+www/index.html      ← protótipo (HTML/CSS/JS vanilla, sinais simulados)
+android/            ← projeto Android do protótipo (Capacitor)
+apk/                ← APKs prontos para instalar
+docs/especificacao.md ← arquitetura completa da visão final
 ```
 
 ## Instalar no celular
 
-Baixe `apk/sonda-debug.apk`, envie para o celular e instale (é preciso permitir "instalar apps de fontes desconhecidas"). Por ser um APK de debug não assinado para loja, o Android exibirá um aviso — é esperado.
+Baixe o APK desejado da pasta `apk/`, envie para o celular e instale (é preciso permitir "instalar apps de fontes desconhecidas"). Por não serem assinados para loja, o Android exibirá um aviso — é esperado.
 
-## Compilar do zero
+- `sonda-ble.apk` — **app real**: pede a permissão "Dispositivos por perto" e mostra o que existe de verdade ao seu redor.
+- `sonda-debug.apk` — protótipo com dados simulados (não pede permissão nenhuma).
 
-Requisitos: Node 18+, JDK 17+ e Android SDK (`ANDROID_HOME` configurado).
+## Próximos passos
 
-```bash
-npm install
-npx cap sync android
-cd android && ./gradlew assembleDebug
-# APK em android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-## Próximos passos (versão real)
-
-O plano de arquitetura completo está em [`docs/especificacao.md`](docs/especificacao.md): Flutter + `flutter_blue_plus` com o BLE como motor primário do radar, Wi-Fi como camada complementar no Android, UWB como modo precisão, bases OUI/Company ID embarcadas e o mesmo `DistanceEstimator` (Kalman + log-distance) já validado neste protótipo.
+Roteiro em [`docs/especificacao.md`](docs/especificacao.md): tabela completa OUI/Company ID embarcada (SQLite), Wi-Fi scan complementar no Android, UWB como modo precisão, filtros persistentes e apelidos para dispositivos favoritos.

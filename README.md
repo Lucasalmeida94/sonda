@@ -18,11 +18,13 @@ O repositório tem duas versões:
 - **Classificação heurística**: nome anunciado → serviços GATT (Fast Pair, HID, freq. cardíaca, Eddystone…) → Company ID do fabricante (subconjunto da tabela Bluetooth SIG).
 - **Card do dispositivo**: distância com margem, barras de sinal, MAC/ID, fabricante, serviços, RSSI cru vs. filtrado, TxPower.
 - **Modo busca quente/frio** com vibração progressiva real (HapticFeedback) e tendência por janelas de 1,5 s com histerese de 2 dB.
-- **Permissões**: `BLUETOOTH_SCAN` (`neverForLocation`) no Android 12+; localização apenas para Android ≤ 11, como o sistema exige.
+- **Camada Wi-Fi complementar** (botão 📶 no topo): redes ao redor entram no radar como categoria Rede, com o mesmo pipeline de distância (TxPower/expoente próprios e TTL maior, já que o Android limita `startScan` a ~4/2min — o scan ativo roda a cada 35 s + leitura passiva dos scans do sistema). Exige localização, como o Android impõe para listar redes.
+- **Detecção de UWB**: em aparelhos com chip de banda ultralarga (Android 12+), o modo busca anuncia o modo precisão; o ranging real (distância em cm + azimute) entra quando houver acessório FiRa compatível para testar.
+- **Permissões**: `BLUETOOTH_SCAN` (`neverForLocation`) no Android 12+; localização para a camada Wi-Fi (e para BLE no Android ≤ 11).
 
 Compilar: instale o [Flutter](https://docs.flutter.dev/get-started/install), depois `cd flutter && flutter build apk --release`.
 
-Limitações conhecidas desta primeira versão: só Android (iOS exige ajustes de Info.plist), sem Wi-Fi scan nem UWB ainda, tabela de fabricantes reduzida, e dispositivos iOS/Android modernos aparecem com MAC randomizado (é o comportamento esperado da plataforma — veja `docs/especificacao.md`).
+Limitações conhecidas: só Android (iOS exige ajustes de Info.plist), tabela de fabricantes reduzida, UWB ainda sem sessão de ranging (só detecção de hardware), e dispositivos iOS/Android modernos aparecem com MAC randomizado (é o comportamento esperado da plataforma — veja `docs/especificacao.md`).
 
 ## O que tem no protótipo (Capacitor)
 
@@ -38,6 +40,8 @@ Limitações conhecidas desta primeira versão: só Android (iOS exige ajustes d
 flutter/            ← app real (Flutter + flutter_blue_plus)
   lib/domain.dart          Kalman, estimador de distância, classificador
   lib/scanner.dart         BleScanner + DeviceRegistry (TTL)
+  lib/wifi_scanner.dart    camada Wi-Fi (wifi_scan, Android)
+  lib/uwb.dart             detecção de hardware UWB (canal nativo)
   lib/radar_screen.dart    radar (CustomPainter), lista, card
   lib/finder_screen.dart   modo busca quente/frio + haptics
 www/index.html      ← protótipo (HTML/CSS/JS vanilla, sinais simulados)
@@ -55,4 +59,4 @@ Baixe o APK desejado da pasta `apk/`, envie para o celular e instale (é preciso
 
 ## Próximos passos
 
-Roteiro em [`docs/especificacao.md`](docs/especificacao.md): tabela completa OUI/Company ID embarcada (SQLite), Wi-Fi scan complementar no Android, UWB como modo precisão, filtros persistentes e apelidos para dispositivos favoritos.
+Roteiro em [`docs/especificacao.md`](docs/especificacao.md): tabela completa OUI/Company ID embarcada (SQLite), sessão de ranging UWB com acessório FiRa (seta direcional real), filtros persistentes e apelidos para dispositivos favoritos.

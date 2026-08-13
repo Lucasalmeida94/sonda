@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'radar_screen.dart';
 import 'scanner.dart';
 import 'theme.dart';
+import 'wifi_scanner.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +42,7 @@ class StartGate extends StatefulWidget {
 class _StartGateState extends State<StartGate> {
   late final DeviceRegistry registry;
   late final BleScanner scanner;
+  late final WifiScanner wifi;
   bool started = false;
 
   @override
@@ -48,10 +50,12 @@ class _StartGateState extends State<StartGate> {
     super.initState();
     registry = DeviceRegistry();
     scanner = BleScanner(registry);
+    wifi = WifiScanner(registry);
   }
 
   @override
   void dispose() {
+    wifi.dispose();
     scanner.dispose();
     registry.dispose();
     super.dispose();
@@ -70,7 +74,7 @@ class _StartGateState extends State<StartGate> {
       valueListenable: scanner.state,
       builder: (context, s, _) => switch (s) {
         ScannerState.scanning =>
-          RadarScreen(registry: registry, scanner: scanner),
+          RadarScreen(registry: registry, scanner: scanner, wifi: wifi),
         ScannerState.bluetoothOff => _message(
             icon: Icons.bluetooth_disabled,
             title: 'Bluetooth desligado',

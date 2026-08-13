@@ -6,6 +6,7 @@ import 'domain.dart';
 import 'finder_screen.dart';
 import 'scanner.dart';
 import 'theme.dart';
+import 'wifi_scanner.dart';
 
 /// Mapeia RSSI filtrado → raio normalizado no radar (0 = centro, 1 = borda).
 double rssiToRadius(double rssi) => ((-32 - rssi) / 58).clamp(0.07, 0.97);
@@ -16,8 +17,12 @@ final zoneFar = rssiToRadius(-70);
 class RadarScreen extends StatefulWidget {
   final DeviceRegistry registry;
   final BleScanner scanner;
+  final WifiScanner wifi;
   const RadarScreen(
-      {super.key, required this.registry, required this.scanner});
+      {super.key,
+      required this.registry,
+      required this.scanner,
+      required this.wifi});
 
   @override
   State<RadarScreen> createState() => _RadarScreenState();
@@ -114,6 +119,13 @@ class _RadarScreenState extends State<RadarScreen>
                     color: SondaColors.accent)),
           ),
           const SizedBox(width: 8),
+          ValueListenableBuilder<WifiState>(
+            valueListenable: widget.wifi.state,
+            builder: (context, ws, _) => _iconToggle(
+                Icons.wifi, ws == WifiState.scanning, _toggleWifi,
+                tooltip: 'Camada Wi-Fi (Android)'),
+          ),
+          const SizedBox(width: 6),
           _iconToggle(Icons.info_outline, advanced,
               () => setState(() => advanced = !advanced),
               tooltip: 'Modo avançado (dBm)'),
@@ -124,6 +136,27 @@ class _RadarScreenState extends State<RadarScreen>
         ],
       ),
     );
+  }
+
+  Future<void> _toggleWifi() async {
+    if (widget.wifi.running) {
+      widget.wifi.stop();
+      return;
+    }
+    final ok = await widget.wifi.start();
+    if (!ok && mounted) {
+      final msg = switch (widget.wifi.state.value) {
+        WifiState.noPermission =>
+          'A camada Wi-Fi precisa da permissão de localização — é uma '
+              'exigência do Android para listar redes.',
+        WifiState.noLocationService =>
+          'Ative a localização do aparelho para o Android liberar o scan '
+              'de redes Wi-Fi.',
+        _ => 'Scan de Wi-Fi não disponível neste aparelho.',
+      };
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(msg)));
+    }
   }
 
   Widget _iconToggle(IconData icon, bool on, VoidCallback onTap,
@@ -529,8 +562,11 @@ class DeviceSheet extends StatelessWidget {
                           children: [
                             Text('Endereço  ${d.id}'),
                             Text('Fabricante  ${d.vendor}'),
-                            Text(
-                                'Serviços  ${d.serviceUuids.isEmpty ? '—' : d.serviceUuids.join(', ')}'),
+                            if (d.source == SignalSource.wifi)
+                              Text('Wi-Fi  ${d.wifiInfo ?? '—'}')
+                            else
+                              Text(
+                                  'Serviços  ${d.serviceUuids.isEmpty ? '—' : d.serviceUuids.join(', ')}'),
                             Text(
                                 'RSSI cru ${d.rssiRaw} dBm · filtrado ${d.rssiF.toStringAsFixed(1)} dBm'),
                             Text(

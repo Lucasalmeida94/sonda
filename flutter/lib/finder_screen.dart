@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'domain.dart';
 import 'scanner.dart';
 import 'theme.dart';
+import 'uwb.dart';
 
 /// Modo busca "quente ou frio": medidor circular + tendência + vibração
 /// progressiva conforme o sinal fica mais forte.
@@ -22,10 +23,14 @@ class FinderScreen extends StatefulWidget {
 
 class _FinderScreenState extends State<FinderScreen> {
   Timer? _haptics;
+  bool _uwb = false;
 
   @override
   void initState() {
     super.initState();
+    Uwb.isSupported().then((ok) {
+      if (mounted && ok) setState(() => _uwb = true);
+    });
     _haptics = Timer.periodic(const Duration(milliseconds: 420), (_) {
       final s = _strength(widget.device.rssiF);
       if (s > .25 && math.Random().nextDouble() < s) {
@@ -167,6 +172,28 @@ class _FinderScreenState extends State<FinderScreen> {
                               color: SondaColors.sub,
                               height: 1.6),
                         ),
+                        if (_uwb) ...[
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 7),
+                            decoration: BoxDecoration(
+                              color:
+                                  SondaColors.accent.withValues(alpha: .1),
+                              border: Border.all(
+                                  color: SondaColors.accent
+                                      .withValues(alpha: .35)),
+                              borderRadius: BorderRadius.circular(99),
+                            ),
+                            child: const Text(
+                              '🎯 UWB disponível — direção real chega com '
+                              'acessórios compatíveis',
+                              style: TextStyle(
+                                  fontSize: 10.5,
+                                  color: SondaColors.accent),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

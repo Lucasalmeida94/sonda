@@ -42,6 +42,9 @@ double rssiToMeters(double rssi, {int txPowerAt1m = -59, double n = 2.7}) {
   return d.clamp(0.1, 50.0);
 }
 
+/// De onde veio o sinal deste dispositivo.
+enum SignalSource { ble, wifi }
+
 int barsOf(double rssi) => ((rssi + 100) / 11).round().clamp(1, 5);
 
 /// Categorias exibidas ao usuário.
@@ -63,6 +66,8 @@ const _catHome = DeviceCategory('home', 'Casa Inteligente',
     'Dispositivo IoT controlável pelo celular', Icons.home_outlined);
 const _catComputing = DeviceCategory('computing', 'Computação',
     'Computador ou periférico com Bluetooth', Icons.laptop);
+const _catNetwork = DeviceCategory(
+    'network', 'Rede', 'Roteador ou ponto de acesso Wi-Fi', Icons.wifi);
 const _catPhone = DeviceCategory(
     'phone', 'Celular', 'Smartphone anunciando por perto', Icons.smartphone);
 const _catBeacon = DeviceCategory(
@@ -72,8 +77,8 @@ const _catUnknown = DeviceCategory(
     Icons.bluetooth);
 
 const allCategories = [
-  _catAudio, _catMedia, _catWear, _catHome, _catComputing, _catPhone,
-  _catBeacon, _catUnknown,
+  _catAudio, _catMedia, _catNetwork, _catWear, _catHome, _catComputing,
+  _catPhone, _catBeacon, _catUnknown,
 ];
 
 /// Subconjunto de Company Identifiers da Bluetooth SIG (a versão final
@@ -137,11 +142,22 @@ DeviceCategory classify(String name, List<String> serviceUuids, int? companyId) 
 /// Um dispositivo rastreado pelo radar.
 class TrackedDevice {
   final String id;
+  final SignalSource source;
   String advName = '';
   int? companyId;
   List<String> serviceUuids = const [];
   int txPower;
   bool connectable = false;
+
+  /// Banda/segurança do AP (só para Wi-Fi), ex.: "5 GHz · WPA2".
+  String? wifiInfo;
+
+  /// Wi-Fi anuncia em ciclos de scan (35 s+), não por advertisement como o
+  /// BLE — o TTL precisa ser proporcionalmente maior para a bolha não piscar.
+  int get ttlScale => source == SignalSource.wifi ? 6 : 1;
+
+  /// Expoente de perda de percurso: APs costumam estar atrás de paredes.
+  double get pathLossN => source == SignalSource.wifi ? 3.0 : 2.7;
 
   final filter = RssiKalmanFilter();
   int rssiRaw = -100;
@@ -156,15 +172,18 @@ class TrackedDevice {
       (id.codeUnits.fold(0, (a, c) => (a * 31 + c) & 0x7fffffff) % 360) *
           math.pi / 180;
 
-  TrackedDevice(this.id, {this.txPower = -59});
+  TrackedDevice(this.id, {this.txPower = -59, this.source = SignalSource.ble});
 
-  DeviceCategory get category => classify(advName, serviceUuids, companyId);
+  DeviceCategory get category => source == SignalSource.wifi
+      ? _catNetwork
+      : classify(advName, serviceUuids, companyId);
 
   String get vendor =>
       companyNames[companyId] ?? (companyId != null ? 'Fabricante 0x${companyId!.toRadixString(16).padLeft(4, '0').toUpperCase()}' : 'Desconhecido');
 
   String get displayName {
     if (advName.isNotEmpty) return advName;
+    if (source == SignalSource.wifi) return 'Rede oculta';
     final v = companyNames[companyId];
     if (v != null) return 'Dispositivo $v';
     return 'Dispositivo ${id.substring(id.length - 5)}';
@@ -180,9 +199,11 @@ class TrackedDevice {
   }
 
   ProximityBucket get bucket => bucketFor(rssiF);
-  double get meters => rssiToMeters(rssiF, txPowerAt1m: txPower);
+  double get meters =>
+      rssiToMeters(rssiF, txPowerAt1m: txPower, n: pathLossN);
 
-  bool staleAfter(Duration d) => DateTime.now().difference(lastSeen) > d;
+  bool staleAfter(Duration d) =>
+      DateTime.now().difference(lastSeen) > d * ttlScale;
 
   /// Tendência quente/frio: média dos últimos 1,5 s vs 1,5 s anteriores,
   /// com histerese de 2 dB.

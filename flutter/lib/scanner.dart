@@ -26,8 +26,10 @@ class DeviceRegistry extends ChangeNotifier {
   List<TrackedDevice> get visible =>
       _devices.values.where((d) => !d.staleAfter(staleGone)).toList();
 
-  TrackedDevice upsert(String id) =>
-      _devices.putIfAbsent(id, () => TrackedDevice(id));
+  TrackedDevice upsert(String id,
+          {SignalSource source = SignalSource.ble, int txPower = -59}) =>
+      _devices.putIfAbsent(
+          id, () => TrackedDevice(id, source: source, txPower: txPower));
 
   @override
   void dispose() {
